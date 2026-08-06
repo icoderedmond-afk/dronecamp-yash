@@ -1,104 +1,166 @@
-from pathlib import Path
+from easytello import tello
 
-import pandas as pd
-import streamlit as st
-DATA_FILE = Path(__file__).with_name(
-    "synthetic_exoplanet_survey.csv"
-)
+MIN_BATTERY = 40
+WAIT_TIME = 1
+USE_MENU = True
+ENABLE_WARMUP = True 
+ENABLE_SLALOM = True
+ENABLE_PATROL = True
+ENABLE_FINALE = False
+ENABLE_FLIPS = False
 
+def wait(drone, seconds=WAIT_TIME):
+    drone.wait(seconds)
 
-@st.cache_data
-def load_data():
-    df = pd.read_csv(DATA_FILE)
-    df.columns = df.columns.str.strip().str.lower()
-    return df
+def rotate(drone, degrees, clockwise=True):
+    if clockwise:
+        drone.cw(degrees)
+    else:
+        drone.ccw(degrees)
+    wait(drone)
 
+def flip(drone, direction="f"):
+    if ENABLE_FLIPS:
+        drone.flip(direction)
+        wait(drone, 2)
 
-def show_chart(df):
-    chart_columns = [
-        "distance_light_years",
-        "star_mass_solar",
-        "star_radius_solar",
-        "star_temperature_k",
-        "planet_radius_earth",
-        "planet_mass_earth",
-        "orbital_period_days",
-        "semi_major_axis_au",
-        "eccentricity",
-        "equilibrium_temperature_k",
-        "transit_depth_ppm",
-        "signal_strength",
-        "detection_confidence_pct",
-        "liquid_water_index",
-        "moon_candidate_count"
-    ]
+def fly_warmup(drone, distance, height):
+    drone.up(height)
+    wait(drone)
+    drone.forward(distance)
+    wait(drone)
+    rotate(drone, 90)
+    drone.back(distance)
+    wait(drone)
+    drone.down(height)
+    wait(drone)
 
-    chart_columns = [
-        column
-        for column in chart_columns
-        if column in df.columns
-    ]
-    x_column = st.sidebar.selectbox(
-        "Choose the X axis",
-        chart_columns,
-        index=chart_columns.index("planet_radius_earth")
-    )
-    y_column = st.sidebar.selectbox(
-        "Choose the Y axis",
-        chart_columns,
-        index=chart_columns.index("planet_mass_earth")
-    )
-    chart_data = df[
-        [x_column, y_column, "planet_class"]
-    ].copy()
+def fly_slalom(drone, steps, forward_distance, sideways_distance ):
+     for step in range(steps):
+        drone.forward(forward_distance)
+        wait(drone)
+        if step % 2 == 0:
+            drone.left(sideways_distance)
+        else:
+            drone.right(sideways_distance)
+        wait(drone)
 
-    chart_data[x_column] = pd.to_numeric(
-        chart_data[x_column],
-        errors="coerce"
-    )
-    chart_data[y_column] = pd.to_numeric(
-        chart_data[y_column],
-        errors="coerce"
-    )
-    chart_data = chart_data.dropna(
-        subset=[x_column, y_column]
-    )
-    st.subheader(
-        f"{y_column} compared with {x_column}"
-    )
-    st.scatter_chart(
-        chart_data,
-        x=x_column,
-        y=y_column,
-        color="planet_class",
-        height=500
-    )
+def fly_patrol(
+    drone,
+    sides,
+    distance,
+    clockwise=True
+):
+    turn_angle = 360 // sides
+    for side in range(sides):
+        drone.forward(distance)
+        wait(drone)
+        rotate(
+            drone,
+            turn_angle,
+            clockwise
+        )
 
+def fly_finale(
+    drone,
+    distance,
+    height,
+    use_flip
+):
+    drone.up(height)
+    wait(drone)
+    for step in range(4):
+        drone.forward(distance)
+        rotate(
+            drone,
+            90,
+            clockwise=(step % 2 == 0)
+        )
+    if use_flip:
+        flip(drone, "f")
+    drone.down(height)
+    wait(drone)
 
-def setup():
-    st.set_page_config(
-        page_title="Exoplanet Mission Control",
-        layout="wide"
-    )
-    st.title("Exoplanet Mission Control")
-    st.caption(
-        "Choose two measurements and explore their relationship."
-    )
-    df = load_data()
-    st.write(
-        "Total records:",
-        len(df)
-    )
-    show_chart(df)
-    st.subheader("Survey Data")
-    st.dataframe(
-        df.head(10),
-        width="stretch"
-    )
+def choose_routine():
+    print("1 - Warmup")
+    print("2 - Slalom")
+    print("3 - Patrol")
+    print("4 - Finale")
+    print("Q - Land and quit")
+    return input(
+        "Choose a routine: "
+    ).strip()
 
+def run_selected_routine(drone, choice):
+    if choice == "1":
+        fly_warmup(drone, 42, 48)
+    elif choice == "2":
+        fly_slalom(drone, 4, 42, 28)
+    elif choice == "3":
+        fly_patrol(drone, 5, 42)
+    elif choice == "4":
+        fly_finale(
+            drone,
+            35,
+            48,
+            use_flip=True
+        )
+    else:
+        print("Unknown choice.")
+        fly_warmup(drone, 28, 41)
+
+def run_enabled_routines(drone):
+    if ENABLE_WARMUP:
+        fly_warmup(drone, 42, 48)
+    if ENABLE_SLALOM:
+        fly_slalom(drone, 4, 42, 28)
+    if ENABLE_PATROL:
+        fly_patrol(drone, 5, 42)
+    if ENABLE_FINALE:
+        fly_finale(
+            drone,
+            35,
+            48,
+            use_flip=True
+        )
+
+def main():
+    drone = tello.Tello()
+    battery = int(
+        drone.get_battery()
+    )
+    print(f"Battery: {battery}%")
+    if battery < MIN_BATTERY:
+        print(
+            "Charge the drone "
+            "before flying."
+        )
+        return
+    if USE_MENU:
+        choice = choose_routine()
+    drone.takeoff()
+    wait(drone, 2)
+    if USE_MENU:
+        while choice.lower() not in ("q", "quit"):
+            run_selected_routine(
+                drone,
+                choice
+            )
+            choice = choose_routine()
+    else:
+        run_enabled_routines(drone)
+    drone.land()
 
 if __name__ == "__main__":
-    setup()
+    main()
 
+    
+    
+
+
+
+        
+
+        
 
     
