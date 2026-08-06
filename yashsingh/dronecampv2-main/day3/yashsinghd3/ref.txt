@@ -1,0 +1,102 @@
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+
+DATA_FILE = Path(__file__).with_name(
+    "synthetic_exoplanet_survey.csv"
+)
+
+
+@st.cache_data
+def load_data():
+    df = pd.read_csv(DATA_FILE)
+    df.columns = df.columns.str.strip().str.lower()
+    return df
+
+
+def show_chart(df):
+    chart_columns = [
+        "distance_light_years",
+        "star_mass_solar",
+        "star_radius_solar",
+        "star_temperature_k",
+        "planet_radius_earth",
+        "planet_mass_earth",
+        "orbital_period_days",
+        "semi_major_axis_au",
+        "eccentricity",
+        "equilibrium_temperature_k",
+        "transit_depth_ppm",
+        "signal_strength",
+        "detection_confidence_pct",
+        "liquid_water_index",
+        "moon_candidate_count"
+    ]
+
+    chart_columns = [
+        column
+        for column in chart_columns
+        if column in df.columns
+    ]
+    x_column = st.sidebar.selectbox(
+        "Choose the X axis",
+        chart_columns,
+        index=chart_columns.index("planet_radius_earth")
+    )
+    y_column = st.sidebar.selectbox(
+        "Choose the Y axis",
+        chart_columns,
+        index=chart_columns.index("planet_mass_earth")
+    )
+    chart_data = df[
+        [x_column, y_column, "planet_class"]
+    ].copy()
+
+    chart_data[x_column] = pd.to_numeric(
+        chart_data[x_column],
+        errors="coerce"
+    )
+    chart_data[y_column] = pd.to_numeric(
+        chart_data[y_column],
+        errors="coerce"
+    )
+    chart_data = chart_data.dropna(
+        subset=[x_column, y_column]
+    )
+    st.subheader(
+        f"{y_column} compared with {x_column}"
+    )
+    st.scatter_chart(
+        chart_data,
+        x=x_column,
+        y=y_column,
+        color="planet_class",
+        height=500
+    )
+
+
+def setup():
+    st.set_page_config(
+        page_title="Exoplanet Mission Control",
+        layout="wide"
+    )
+    st.title("Exoplanet Mission Control")
+    st.caption(
+        "Choose two measurements and explore their relationship."
+    )
+    df = load_data()
+    st.write(
+        "Total records:",
+        len(df)
+    )
+    show_chart(df)
+    st.subheader("Survey Data")
+    st.dataframe(
+        df.head(10),
+        width="stretch"
+    )
+
+
+if __name__ == "__main__":
+    setup()
